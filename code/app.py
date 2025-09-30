@@ -93,74 +93,71 @@ elif page == "Quiz":
 
     # Initialisation de la question si elle n'existe pas dans la session
     if "correct_answer" not in st.session_state:
-        # On tire une nouvelle image et on stocke la bonne réponse dans la session
         random_path, correct_ans = get_random_range()
         if random_path is None:
             st.error(
-                "Aucune range trouvée ! Vérifiez que le dossier 'Ranges' contient bien des images .png"
+                "Aucune range trouvée ! Vérifiez que le dossier 'Ranges' contient des .png"
             )
         else:
             st.session_state.image_path = random_path
             st.session_state.correct_answer = correct_ans
 
-    # Affichage de l'image de la question actuelle
-    st.image(st.session_state.image_path)
+    # Mise en page plus compacte : image à gauche, sélecteurs + boutons à droite
+    col_img, col_controls = st.columns([2, 2])
 
-    st.markdown("---")
+    with col_img:
+        st.image(st.session_state.image_path, use_container_width=True)
 
-    st.subheader("Quelle est cette range ?")
+    with col_controls:
+        st.subheader("Répondre")
 
-    # Création des listes complètes pour les menus déroulants du quiz
-    # (pour que l'utilisateur ait tous les choix possibles)
-    all_depths = sorted(os.listdir(BASE_DIR))
-    all_positions = sorted(
-        list(set(p for d in all_depths for p in os.listdir(os.path.join(BASE_DIR, d))))
-    )
-    all_actions = sorted(
-        list(
-            set(
-                os.path.splitext(f)[0]
-                for d in all_depths
-                for p in all_positions
-                if os.path.exists(os.path.join(BASE_DIR, d, p))
-                for f in os.listdir(os.path.join(BASE_DIR, d, p))
-                if f.endswith(".png")
+        # Listes complètes pour les choix
+        all_depths = sorted(os.listdir(BASE_DIR))
+        all_positions = sorted(
+            list(
+                set(
+                    p for d in all_depths for p in os.listdir(os.path.join(BASE_DIR, d))
+                )
             )
         )
-    )
-
-    # Menus déroulants pour la réponse de l'utilisateur
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        user_depth = st.selectbox("Profondeur", all_depths, key="depth_guess")
-    with col2:
-        user_pos = st.selectbox("Position", all_positions, key="pos_guess")
-    with col3:
-        user_action = st.selectbox("Action / Sizing", all_actions, key="action_guess")
-
-    # Boutons de validation et pour passer à la question suivante
-    col1_btn, col2_btn = st.columns([1, 1])
-
-    with col1_btn:
-        if st.button("✔️ Valider ma réponse"):
-            # Logique de vérification
-            correct = st.session_state.correct_answer
-            if (
-                user_depth == correct["depth"]
-                and user_pos == correct["pos"]
-                and user_action == correct["action"]
-            ):
-                st.success("🎉 Bravo ! C'est la bonne réponse !")
-                st.balloons()
-            else:
-                st.error("❌ Incorrect.")
-                st.info(
-                    f"La bonne réponse était : **{correct['depth']} / {correct['pos']} / {correct['action']}**"
+        all_actions = sorted(
+            list(
+                set(
+                    os.path.splitext(f)[0]
+                    for d in all_depths
+                    for p in all_positions
+                    if os.path.exists(os.path.join(BASE_DIR, d, p))
+                    for f in os.listdir(os.path.join(BASE_DIR, d, p))
+                    if f.endswith(".png")
                 )
+            )
+        )
 
-    with col2_btn:
-        if st.button("➡️ Range suivante"):
-            # On efface l'ancienne réponse pour forcer le tirage d'une nouvelle
-            if "correct_answer" in st.session_state:
-                del st.session_state["correct_answer"]
-            st.rerun()
+        # Sélecteurs sur une seule ligne
+        depth = st.selectbox("Profondeur", all_depths, key="depth_guess")
+        pos = st.selectbox("Position", all_positions, key="pos_guess")
+        action = st.selectbox("Action", all_actions, key="action_guess")
+
+        # Boutons
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            if st.button("✔️ Valider"):
+                correct = st.session_state.correct_answer
+                if (
+                    depth == correct["depth"]
+                    and pos == correct["pos"]
+                    and action == correct["action"]
+                ):
+                    st.success("🎉 Bravo ! C'est la bonne réponse !")
+                    st.balloons()
+                else:
+                    st.error("❌ Incorrect.")
+                    st.info(
+                        f"Bonne réponse : **{correct['depth']} / {correct['pos']} / {correct['action']}**"
+                    )
+
+        with col_btn2:
+            if st.button("➡️ Suivant"):
+                if "correct_answer" in st.session_state:
+                    del st.session_state["correct_answer"]
+                st.rerun()
