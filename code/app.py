@@ -4,7 +4,7 @@ import random
 
 # --- CONFIGURATION DE BASE ---
 # Le répertoire où sont stockées vos images de ranges.
-BASE_DIR = "Ranges"
+BASE_DIR = "ranges"
 
 st.set_page_config(page_title="Poker Range Trainer", page_icon="♠️", layout="centered")
 
