@@ -1,7 +1,11 @@
+import base64
+from tkinter import Image
 import streamlit as st
 import os
 import random
 from pathlib import Path
+from streamlit_drawable_canvas import st_canvas
+import PIL
 
 # --- CONFIGURATION DE BASE ---
 # Utilisation de pathlib pour une meilleure gestion des chemins
@@ -11,6 +15,19 @@ st.set_page_config(page_title="Poker Range Trainer", page_icon="♠️", layout=
 
 
 # --- FONCTIONS UTILITAIRES ---
+
+
+def get_image_as_base64(path):
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        print("Image OK:", path)
+        return base64.b64encode(data).decode()
+    except FileNotFoundError:
+        st.error(
+            f"Erreur: Le fichier image n'a pas été trouvé à l'emplacement '{path}'. Vérifiez que le chemin est correct."
+        )
+        return None
 
 
 @st.cache_data
@@ -182,76 +199,37 @@ elif page == "Quiz":
 # ==============================================================================
 # PAGE 3 : DRAW MY RANGE (NOUVEAU)
 # ==============================================================================
-elif page == "Draw My Range":
+if page == "Draw My Range":
     st.title("✍️ Draw My Range")
+    # ... (votre code d'initialisation de session_state reste le même) ...
+    st.info("Dessinez la range en traçant des rectangles sur la grille.")
 
-    # --- Initialisation (votre code est bon) ---
-    if "draw_answer" not in st.session_state:
-        path, answer = get_random_range_from_structure(ALL_RANGES)
-        st.session_state.draw_answer = answer
-        st.session_state.draw_image_path = path
-        st.session_state.show_draw_correction = False
-        # Effacer la grille précédente
-        for key in list(st.session_state.keys()):
-            if key.startswith("draw_cb_"):
-                del st.session_state[key]
+    # --- NOUVELLE GRILLE INTERACTIVE AVEC DRAWABLE CANVAS ---
 
-    correct = st.session_state.draw_answer
-    st.info(
-        f"Dessiner la range pour **{correct['depth']} / {correct['pos']} / {correct['action']}**"
+    # 1. Charger votre image de fond avec la librairie PIL
+
+    bg_image = PIL.Image.open("ranges/base.png")
+
+    # 2. Configurer le canvas te
+    canvas_result = st_canvas(
+        fill_color="rgba(30, 144, 255, 0.4)",  # Couleur de remplissage des rectangles
+        stroke_width=0,  # Pas de bordure pour les rectangles
+        stroke_color="rgba(0, 0, 0, 0)",
+        background_image=bg_image,
+        update_streamlit=True,  # Met à jour en temps réel
+        height=600,  # Doit correspondre à la hauteur de votre image
+        width=600,  # Doit correspondre à la largeur de votre image
+        drawing_mode="rect",  # Mode pour dessiner des rectangles
+        key="canvas",
     )
 
-    # --- Grille de 13x13 (PARTIE CORRIGÉE) ---
-    ranks = ["A", "K", "Q", "J", "T", "9", "8", "7", "6", "5", "4", "3", "2"]
+    # 3. (Optionnel) Afficher les données dessinées pour le débogage
+    if canvas_result.json_data is not None:
+        # st.write("Données des sélections :")
+        # st.json(canvas_result.json_data) # Décommentez pour voir les coordonnées des rectangles
+        pass
 
-    # Injecter un peu de CSS pour rendre la grille plus compacte et jolie
-    st.markdown(
-        """
-        <style>
-            /* Cible les conteneurs des colonnes pour réduire l'espacement */
-            div.st-emotion-cache-1r6slb0 {
-                gap: 0.1rem;
-            }
-            /* Centre le contenu des checkboxes et réduit la marge */
-            div[data-testid="stCheckbox"] label {
-                justify-content: center;
-                text-align: center;
-                font-size: 0.8rem;
-                margin: 0;
-                padding: 0.2rem;
-                width: 100%;
-                border: 1px solid rgba(49, 51, 63, 0.2);
-                border-radius: 0.25rem;
-                min-width: 35px;           /* Définit une largeur minimale pour la cellule */
-                white-space: nowrap;       /* Empêche le texte de passer à la ligne */
-        }
-            /* Cache le carré de la checkbox elle-même */
-            div[data-testid="stCheckbox"] input {
-                display: none;
-            }
-        </style>
-    """,
-        unsafe_allow_html=True,
-    )
-
-    for r1_idx, r1 in enumerate(ranks):
-        # Crée une ligne de 13 colonnes
-        cols = st.columns(13)
-        for r2_idx, r2 in enumerate(ranks):
-            # Logique pour déterminer la main (votre code est bon)
-            if r1_idx > r2_idx:
-                hand = f"{r2}{r1}o"  # Suited
-            elif r1_idx < r2_idx:
-                hand = f"{r1}{r2}s"  # Offsuit
-            else:
-                hand = f"{r1}{r2}"  # Pair
-
-            # Place une checkbox dans sa colonne dédiée
-            with cols[r2_idx]:
-                # On utilise la main comme label et on ne le cache PAS
-                st.checkbox(hand, key=f"draw_cb_{hand}")
-
-    # --- Boutons de contrôle (votre code est bon) ---
+    # --- Boutons de contrôle (inchangés) ---
     st.markdown("---")
     col1, col2 = st.columns(2)
 
@@ -261,13 +239,13 @@ elif page == "Draw My Range":
 
     with col2:
         if st.button("➡️ Range Suivante", use_container_width=True):
+            # Il n'y a plus de checkboxes à effacer, mais on peut vouloir reset le canvas
+            # Pour l'instant, changer de range relancera la page et donc le canvas.
             del st.session_state.draw_answer
             st.rerun()
 
-    # --- Affichage de la correction (votre code est bon) ---
+    # --- Affichage de la correction (inchangé) ---
     if st.session_state.get("show_draw_correction"):
         st.subheader("Range correcte")
-        st.warning(
-            "La validation automatique n'est pas possible. Comparez visuellement votre grille avec l'image ci-dessous."
-        )
-        st.image(st.session_state.draw_image_path)
+        st.warning("Comparez visuellement votre grille avec l'image ci-dessous.")
+        # st.image(st.session_state.draw_image_path) # Assurez-vous que cette variable est bien définie
