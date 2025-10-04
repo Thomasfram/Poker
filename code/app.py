@@ -1,5 +1,6 @@
 import base64
-from tkinter import Image
+
+# from tkinter import Image
 import streamlit as st
 import os
 import random
@@ -199,7 +200,7 @@ elif page == "Quiz":
 # ==============================================================================
 # PAGE 3 : DRAW MY RANGE (NOUVEAU)
 # ==============================================================================
-if page == "Draw My Range":
+"""if page == "Draw My Range":
     st.title("✍️ Draw My Range")
     # ... (votre code d'initialisation de session_state reste le même) ...
     st.info("Dessinez la range en traçant des rectangles sur la grille.")
@@ -249,3 +250,4 @@ if page == "Draw My Range":
         st.subheader("Range correcte")
         st.warning("Comparez visuellement votre grille avec l'image ci-dessous.")
         # st.image(st.session_state.draw_image_path) # Assurez-vous que cette variable est bien définie
+"""
