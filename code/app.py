@@ -1,12 +1,11 @@
 import base64
 
-# from tkinter import Image
+
 import streamlit as st
-import os
+
 import random
 from pathlib import Path
-from streamlit_drawable_canvas import st_canvas
-import PIL
+
 
 # --- CONFIGURATION DE BASE ---
 # Utilisation de pathlib pour une meilleure gestion des chemins
