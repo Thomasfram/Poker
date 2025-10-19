@@ -17,23 +17,40 @@ if not ALL_RANGES:
     )
     st.stop()
 
-
+POSITION_ORDER = ["LJ", "HJ", "CO", "BTN", "SB", "BB"]
 # --- PAGE LAYOUT ---
 col_img, col_controls = st.columns([2, 1])
 
 with col_controls:
     st.subheader("Select a range")
 
-    depth_list = sorted(ALL_RANGES.keys())
-    depth = st.selectbox("Profondeur", depth_list, key="view_depth")
+    depth_list = sorted(
+        ALL_RANGES.keys(), key=lambda x: int(x.split("bb")[0]), reverse=True
+    )
+    # Changed selectbox to radio
+    depth = st.radio("Profondeur", depth_list, key="view_depth", horizontal=True)
 
-    # The position selectbox depends on the chosen depth
-    positions_list = sorted(ALL_RANGES[depth].keys())
-    pos = st.selectbox("Position", positions_list, key="view_pos")
+    positions_list = [pos for pos in POSITION_ORDER if pos in POSITION_ORDER]
 
-    # The action selectbox depends on the depth and position
+    # Fallback: if any available positions are NOT in the custom order,
+    # add them to the end, sorted alphabetically.
+    # This makes the code more robust if you add new positions later.
+    other_positions = sorted(
+        [pos for pos in POSITION_ORDER if pos not in POSITION_ORDER]
+    )
+    positions_list.extend(other_positions)
+    pos = st.radio("Position", positions_list, key="view_pos", horizontal=True)
+
+    # The action radio buttons depend on the depth and position
     actions_list = sorted(ALL_RANGES[depth][pos])
-    action = st.selectbox("Action / Sizing", actions_list, key="view_action")
+    # Changed selectbox to radio
+    action = st.radio(
+        "Action / Sizing",
+        actions_list,
+        key="view_action",
+        horizontal=True,
+        index=len(actions_list) - 1,
+    )
 
 with col_img:
     image_path = BASE_DIR / depth / pos / f"{action}.png"

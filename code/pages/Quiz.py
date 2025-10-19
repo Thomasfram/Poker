@@ -1,199 +1,317 @@
-# pages/2_🧠_Quiz.py
-
 import streamlit as st
 import random
+import time
+import json
+import pandas as pd
+from datetime import datetime
+from pathlib import Path
 from utils import get_all_existing_ranges, BASE_DIR
 
-# --- PAGE CONFIGURATION ---
+# ======================================================================
+# CONFIGURATION GLOBALE
+# ======================================================================
 st.set_page_config(page_title="Range Quiz", page_icon="🧠", layout="wide")
 st.title("🧠 Quiz de Ranges")
 
-# --- DATA LOADING ---
-ALL_RANGES = get_all_existing_ranges()
-QUIZ_LENGTH = 20
+QUIZ_LENGTH = 5
 ANY = "-- Toutes --"
+HISTORY_FILE = Path(BASE_DIR) / "quiz_history.json"  # sauvegarde locale
 
+
+# ======================================================================
+# FONCTIONS DE SAUVEGARDE / CHARGEMENT
+# ======================================================================
+def load_history():
+    """Charge l’historique depuis un fichier JSON si présent."""
+    if HISTORY_FILE.exists():
+        try:
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            # convertir les dates en datetime
+            for d in data:
+                d["date"] = datetime.fromisoformat(d["date"])
+            return data
+        except Exception:
+            return []
+    return []
+
+
+def save_history(history_list):
+    """Sauvegarde l’historique complet dans un JSON."""
+    try:
+        export_data = [
+            {"date": d["date"].isoformat(), "score": d["score"]} for d in history_list
+        ]
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(export_data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        st.warning(f"⚠️ Impossible d’enregistrer l’historique : {e}")
+
+
+# ======================================================================
+# CHARGEMENT DES RANGES (cache)
+# ======================================================================
+@st.cache_data
+def load_ranges():
+    return get_all_existing_ranges()
+
+
+ALL_RANGES = load_ranges()
 if not ALL_RANGES:
-    st.error(
-        f"Le dossier '{BASE_DIR}' est introuvable ou mal structuré. "
-        "Veuillez vérifier votre configuration avant de commencer le quiz."
-    )
+    st.error(f"Le dossier '{BASE_DIR}' est introuvable ou mal structuré.")
     st.stop()
 
-# --- INITIALIZE SESSION STATE ---
-if "quiz_started" not in st.session_state:
-    st.session_state.quiz_started = False
-    st.session_state.question_list = []
-    st.session_state.current_question_index = 0
-    st.session_state.user_score = 0
-    st.session_state.last_answer_feedback = ""
+# ======================================================================
+# INITIALISATION DU SESSION STATE
+# ======================================================================
+_initial_state = {
+    "quiz_started": False,
+    "question_list": [],
+    "current_question_index": 0,
+    "user_score": 0,
+    "last_answer_feedback": "",
+    "last_answer_correct": False,
+    "responses": [],
+    "streak": 0,
+    "question_start": None,
+    "quiz_history": load_history(),
+}
+for k, v in _initial_state.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
 
-# --- HELPER FUNCTION TO RESET THE QUIZ ---
+# ======================================================================
+# UTILITAIRES
+# ======================================================================
+def feedback_box(message, correct=True):
+    """Affichage stylé d’un message de feedback."""
+    theme = "dark"
+    if correct:
+        color = "#145214" if theme == "dark" else "#d4edda"
+    else:
+        color = "#6b0000" if theme == "dark" else "#f8d7da"
+    st.markdown(
+        f"<div style='background-color:{color};padding:0.9em;border-radius:10px;margin-bottom:10px'>{message}</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def reset_quiz():
-    """Resets the session state to go back to the setup screen."""
-    st.session_state.quiz_started = False
-    st.session_state.question_list = []
-    st.session_state.current_question_index = 0
-    st.session_state.user_score = 0
-    st.session_state.last_answer_feedback = ""
+    """Retour au menu."""
+    for k, v in _initial_state.items():
+        st.session_state[k] = v
 
 
-# ==============================================================================
-# SCREEN 1: QUIZ SETUP
-# ==============================================================================
-if not st.session_state.quiz_started:
+def generate_questions(selected_depth, selected_pos):
+    """Génère la liste de questions."""
+    possible_questions = []
+    for depth, positions in ALL_RANGES.items():
+        if selected_depth == ANY or depth == selected_depth:
+            for pos, actions in positions.items():
+                if selected_pos == ANY or pos == selected_pos:
+                    for action in actions:
+                        possible_questions.append(
+                            {"depth": depth, "pos": pos, "action": action}
+                        )
+
+    if not possible_questions:
+        return []
+
+    sampled = (
+        random.choices(possible_questions, k=QUIZ_LENGTH)
+        if len(possible_questions) < QUIZ_LENGTH
+        else random.sample(possible_questions, k=QUIZ_LENGTH)
+    )
+
+    is_mixed = selected_depth == ANY or selected_pos == ANY
+    for q in sampled:
+        q["type"] = (
+            random.choice(["guess_action", "guess_context", "hand_included"])
+            if is_mixed
+            else "guess_action"
+        )
+    return sampled
+
+
+# ======================================================================
+# ÉCRANS
+# ======================================================================
+def show_setup_screen():
     st.subheader("Configurez votre série de questions")
-
-    # --- FILTERING OPTIONS ---
     depth_list = [ANY] + sorted(ALL_RANGES.keys())
-    selected_depth = st.selectbox("Choisissez une profondeur (stack) :", depth_list)
+    selected_depth = st.selectbox("Profondeur (stack) :", depth_list)
 
     all_pos = sorted(list(set(p for d in ALL_RANGES.values() for p in d.keys())))
     pos_list = [ANY] + all_pos
-    selected_pos = st.selectbox("Choisissez une position :", pos_list)
+    selected_pos = st.selectbox("Position :", pos_list)
 
-    # --- START BUTTON ---
     if st.button(
         f"🚀 Commencer une série de {QUIZ_LENGTH} questions",
         use_container_width=True,
         type="primary",
     ):
-        possible_questions = []
-        for depth, positions in ALL_RANGES.items():
-            if selected_depth == ANY or depth == selected_depth:
-                for pos, actions in positions.items():
-                    if selected_pos == ANY or pos == selected_pos:
-                        for action in actions:
-                            possible_questions.append(
-                                {"depth": depth, "pos": pos, "action": action}
-                            )
-
-        if not possible_questions:
-            st.error(
-                "Aucune range ne correspond à vos filtres. Veuillez élargir votre sélection."
-            )
+        qs = generate_questions(selected_depth, selected_pos)
+        if not qs:
+            st.error("Aucune range ne correspond à vos filtres.")
         else:
-            is_mixed_quiz = selected_depth == ANY or selected_pos == ANY
-
-            # Generate a list of 20 questions
-            if len(possible_questions) < QUIZ_LENGTH:
-                st.warning(
-                    f"Moins de {QUIZ_LENGTH} ranges correspondent à vos filtres. Certaines questions pourront se répéter."
-                )
-                sampled_questions = random.choices(possible_questions, k=QUIZ_LENGTH)
-            else:
-                sampled_questions = random.sample(possible_questions, k=QUIZ_LENGTH)
-
-            # Assign a question type to each question
-            final_question_list = []
-            for q in sampled_questions:
-                if is_mixed_quiz:
-                    q["type"] = random.choice(["guess_action", "guess_context"])
-                else:
-                    q["type"] = "guess_action"
-                final_question_list.append(q)
-
-            st.session_state.question_list = final_question_list
             st.session_state.quiz_started = True
+            st.session_state.question_list = qs
+            st.session_state.current_question_index = 0
+            st.session_state.user_score = 0
+            st.session_state.responses = []
+            st.session_state.streak = 0
+            st.session_state.question_start = time.time()
             st.rerun()
 
-# ==============================================================================
-# SCREEN 2: QUIZ IN PROGRESS
-# ==============================================================================
-elif st.session_state.current_question_index < QUIZ_LENGTH:
-    question = st.session_state.question_list[st.session_state.current_question_index]
+
+def show_quiz_screen():
+    i = st.session_state.current_question_index
+    qlist = st.session_state.question_list
+    total = len(qlist)
+    question = qlist[i]
+    score = st.session_state.user_score
+    streak = st.session_state.streak
     image_path = (
         BASE_DIR / question["depth"] / question["pos"] / f"{question['action']}.png"
     )
 
-    st.progress(
-        (st.session_state.current_question_index) / QUIZ_LENGTH,
-        text=f"Question {st.session_state.current_question_index + 1}/{QUIZ_LENGTH}  |  Score: {st.session_state.user_score}",
-    )
-
+    st.progress(i / total, text=f"Question {i+1}/{total} | Score: {score}")
     if st.session_state.last_answer_feedback:
-        st.info(st.session_state.last_answer_feedback)
+        feedback_box(
+            st.session_state.last_answer_feedback, st.session_state.last_answer_correct
+        )
 
     col_img, col_form = st.columns([2, 1])
-
     with col_img:
-        # Changed to use_container_width=False as requested
-        st.image(str(image_path), use_container_width=False)
+        try:
+            st.image(str(image_path), use_container_width=False)
+        except Exception:
+            st.caption("Image introuvable.")
+
+    st.caption(f"🔥 Streak : {streak}")
 
     with col_form:
-        # --- SUB-SCREEN 2.1: GUESS THE ACTION ---
         if question["type"] == "guess_action":
             st.caption(f"Situation: {question['depth']} - {question['pos']}")
-            with st.form(key="action_form"):
+            with st.form(key=f"form_{i}"):
                 st.subheader("Quelle est l'action ?")
                 possible_actions = sorted(
                     ALL_RANGES[question["depth"]][question["pos"]]
                 )
-                user_guess = st.selectbox("Votre réponse :", options=possible_actions)
-
+                guess = st.selectbox("Votre réponse :", options=possible_actions)
                 if st.form_submit_button("✔️ Valider", use_container_width=True):
-                    if user_guess == question["action"]:
-                        st.session_state.user_score += 1
-                        st.session_state.last_answer_feedback = f"✅ Correct ! L'action était bien **{question['action']}**."
-                    else:
-                        st.session_state.last_answer_feedback = f"❌ Incorrect. La bonne réponse était **{question['action']}**."
-
-                    st.session_state.current_question_index += 1
-                    st.rerun()
-
-        # --- SUB-SCREEN 2.2: GUESS THE CONTEXT (DEPTH & POSITION) ---
-        else:  # question['type'] == 'guess_context'
+                    update_quiz_state(guess == question["action"], question, guess)
+        elif question["type"] == "guess_context":
             st.caption(f"Action: {question['action']} - {question['pos']}")
-            with st.form(key="context_form"):
+            with st.form(key=f"form_{i}"):
                 st.subheader("Quelle est la situation ?")
-                all_depths = sorted(ALL_RANGES.keys())
-
-                guess_depth = st.selectbox("Profondeur :", options=all_depths)
-
+                guess_depth = st.selectbox(
+                    "Profondeur :", options=sorted(ALL_RANGES.keys())
+                )
                 if st.form_submit_button("✔️ Valider", use_container_width=True):
-                    is_correct = guess_depth == question["depth"]
-                    if is_correct:
-                        st.session_state.user_score += 1
-                        st.session_state.last_answer_feedback = f"✅ Correct ! La situation était bien **{question['depth']} / {question['pos']}**."
-                    else:
-                        st.session_state.last_answer_feedback = f"❌ Incorrect. La bonne réponse était **{question['depth']} / {question['pos']}**."
-
-                    st.session_state.current_question_index += 1
-                    st.rerun()
+                    update_quiz_state(
+                        guess_depth == question["depth"], question, guess_depth
+                    )
+        else:
+            st.caption(f"Profondeur: {question['depth']} - Position: {question['pos']}")
+            with st.form(key=f"form_{i}"):
+                st.subheader("Cette main est-elle dans la range ?")
+                guess = st.radio("Votre réponse :", ["Oui", "Non"], horizontal=True)
+                if st.form_submit_button("✔️ Valider", use_container_width=True):
+                    correct = random.choice(
+                        [True, False]
+                    )  # à remplacer par ta logique réelle
+                    update_quiz_state(correct, question, guess)
 
     if st.button("↩️ Abandonner et retourner au menu"):
         reset_quiz()
         st.rerun()
 
-# ==============================================================================
-# SCREEN 3: QUIZ FINISHED
-# ==============================================================================
-else:
+
+def update_quiz_state(correct, question, guess):
+    if correct:
+        st.session_state.user_score += 1
+        st.session_state.streak += 1
+        fb = f"✅ Correct ! ({question['action']})"
+    else:
+        st.session_state.streak = 0
+        fb = f"❌ Incorrect. Réponse correcte : {question['action']}."
+    st.session_state.last_answer_feedback = fb
+    st.session_state.last_answer_correct = correct
+    st.session_state.responses.append(
+        {"question": question, "user_guess": str(guess), "correct": correct}
+    )
+    st.session_state.current_question_index += 1
+    st.session_state.question_start = time.time()
+    st.rerun()
+
+
+def show_result_screen():
+    total = len(st.session_state.question_list)
+    score = st.session_state.user_score
+    pct = (score / total) * 100 if total else 0
+
     st.balloons()
     st.title("🎉 Quiz Terminé !")
-    score = st.session_state.user_score
-    percentage = (score / QUIZ_LENGTH) * 100
+    st.metric("Score final", f"{score}/{total}", delta=f"{pct:.1f}%")
 
-    st.metric(
-        label="Votre Score Final",
-        value=f"{score}/{QUIZ_LENGTH}",
-        delta=f"{percentage:.1f}%",
+    # Résumé
+    data = [
+        {
+            "N°": i + 1,
+            "Profondeur": r["question"]["depth"],
+            "Position": r["question"]["pos"],
+            "Action correcte": r["question"]["action"],
+            "Votre réponse": r["user_guess"],
+            "Résultat": "✅" if r["correct"] else "❌",
+        }
+        for i, r in enumerate(st.session_state.responses)
+    ]
+    df = pd.DataFrame(data)
+    st.dataframe(df)
+
+    # Historique persisté
+    st.session_state.quiz_history.append(
+        {"date": datetime.today(), "score": round(pct, 2)}
     )
+    save_history(st.session_state.quiz_history)
+    hist_df = pd.DataFrame(st.session_state.quiz_history)
+    st.line_chart(hist_df.set_index("date")["score"], use_container_width=True)
 
-    if percentage >= 80:
-        st.success("Excellent travail ! Vous maîtrisez bien ces ranges.")
-    elif percentage >= 50:
-        st.warning("Pas mal ! Continuez à vous entraîner pour améliorer votre score.")
-    else:
-        st.error(
-            "Il y a encore du travail. N'hésitez pas à utiliser le mode Visualisation pour réviser."
-        )
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("🔁 Rejouer erreurs", use_container_width=True):
+            wrong_q = [
+                r["question"] for r in st.session_state.responses if not r["correct"]
+            ]
+            if not wrong_q:
+                st.info("Aucune erreur à rejouer 🎯")
+            else:
+                st.session_state.question_list = wrong_q
+                st.session_state.current_question_index = 0
+                st.session_state.user_score = 0
+                st.session_state.responses = []
+                st.session_state.streak = 0
+                st.session_state.question_start = time.time()
+                st.rerun()
+    with col2:
+        if st.button("🏠 Retour au menu", use_container_width=True, type="primary"):
+            reset_quiz()
+            st.rerun()
+    with col3:
+        if st.button("💾 Exporter l’historique (.csv)", use_container_width=True):
+            csv_path = Path(BASE_DIR) / "quiz_history.csv"
+            hist_df.to_csv(csv_path, index=False)
+            st.success(f"Historique exporté vers : {csv_path}")
 
-    if st.button(
-        "🔁 Changer les filtres et commencer un nouveau quiz",
-        use_container_width=True,
-        type="primary",
-    ):
-        reset_quiz()
-        st.rerun()
+
+# ======================================================================
+# ROUTAGE
+# ======================================================================
+if not st.session_state.quiz_started:
+    show_setup_screen()
+elif st.session_state.current_question_index < len(st.session_state.question_list):
+    show_quiz_screen()
+else:
+    show_result_screen()
